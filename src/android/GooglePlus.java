@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 
@@ -21,55 +22,70 @@ import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListe
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Status;
 import com.google.android.gms.plus.Plus;
+import com.google.android.gms.plus.PlusShare;
+import com.google.android.gms.plus.PlusShare.Builder;
 import com.google.android.gms.plus.model.people.Person;
 
 import org.apache.cordova.*;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks, OnConnectionFailedListener {
+public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks,
+    OnConnectionFailedListener {
 
-  public static final String ACTION_LOGIN = "login";
-  public static final String ACTION_TRY_SILENT_LOGIN = "trySilentLogin";
-  public static final String ACTION_LOGOUT = "logout";
-  public static final String ACTION_DISCONNECT = "disconnect";
-  public static final String ARGUMENT_ANDROID_KEY = "androidApiKey";
-  public static final String ARGUMENT_WEB_KEY = "webApiKey";
+  public static final String ACTION_LOGIN             = "login";
+  public static final String ACTION_TRY_SILENT_LOGIN  = "trySilentLogin";
+  public static final String ACTION_LOGOUT            = "logout";
+  public static final String ACTION_DISCONNECT        = "disconnect";
+  public static final String ACTION_SHARE             = "share";
 
-  // Wraps our service connection to Google Play services and provides access to the users sign in state and Google APIs
-  private GoogleApiClient mGoogleApiClient;
-  private String apiKey, webKey;
-  private CallbackContext savedCallbackContext;
-  private boolean trySilentLogin;
-  private boolean loggingOut;
+  public static final String ARGUMENT_ANDROID_KEY     = "androidApiKey";
+  public static final String ARGUMENT_WEB_KEY         = "webApiKey";
+
+  public static final int    REQUEST_SHARE            = 0x1000;
+  public static final int    REQUEST_UPGRADE          = 0x2000;
+  public static final int    REQUEST_USER_RECOVERABLE = 0x3000;
+  private static final int   REQUEST_SIGNIN           = 0x4000;
+
+  // Wraps our service connection to Google Play services and provides access to
+  // the users sign in state and Google APIs
+  private GoogleApiClient    mGoogleApiClient;
+  private String             apiKey, webKey;
+  private CallbackContext    savedCallbackContext;
+  private Activity           mActivity;
+  private boolean            trySilentLogin;
+  private boolean            loggingOut;
 
   @Override
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
     super.initialize(cordova, webView);
     mGoogleApiClient = buildGoogleApiClient();
+    this.mActivity = cordova.getActivity();
   }
 
   @Override
-  public boolean execute(String action, CordovaArgs args, CallbackContext callbackContext) throws JSONException {
+  public boolean execute(String action, CordovaArgs args,
+      CallbackContext callbackContext) throws JSONException {
     this.savedCallbackContext = callbackContext;
 
-    if (args.optJSONObject(0) != null){
+    if (args.optJSONObject(0) != null) {
       JSONObject obj = args.getJSONObject(0);
       System.out.println(obj);
       this.webKey = obj.optString(ARGUMENT_WEB_KEY, null);
       this.apiKey = obj.optString(ARGUMENT_ANDROID_KEY, null);
     }
 
-
     if (ACTION_LOGIN.equals(action)) {
       this.trySilentLogin = false;
       mGoogleApiClient.connect();
 
-    } else if (ACTION_TRY_SILENT_LOGIN.equals(action)) {
+    }
+    else if (ACTION_TRY_SILENT_LOGIN.equals(action)) {
       this.trySilentLogin = true;
       mGoogleApiClient.connect();
 
-    } else if (ACTION_LOGOUT.equals(action)) {
+    }
+    else if (ACTION_LOGOUT.equals(action)) {
       try {
         Plus.AccountApi.clearDefaultAccount(mGoogleApiClient);
         mGoogleApiClient.disconnect();
@@ -82,8 +98,12 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks, On
       }
       savedCallbackContext.success("logged out");
 
-    } else if (ACTION_DISCONNECT.equals(action)) {
+    }
+    else if (ACTION_DISCONNECT.equals(action)) {
       disconnect();
+    }
+    else if (ACTION_SHARE.equals(action)) {
+      share(args);
     }
     return true;
   }
@@ -91,10 +111,11 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks, On
   private void disconnect() {
     try {
       Plus.AccountApi.revokeAccessAndDisconnect(mGoogleApiClient)
-        .setResultCallback(new ResultCallback<Status>() {
+          .setResultCallback(new ResultCallback<Status>() {
             @Override
-              public void onResult(Status status) {
-              // mGoogleApiClient is now disconnected and access has been revoked.
+            public void onResult(Status status) {
+              // mGoogleApiClient is now disconnected and access has been
+              // revoked.
               // Don't care if it was disconnected already (status != success).
               mGoogleApiClient = buildGoogleApiClient();
               savedCallbackContext.success("disconnected");
@@ -107,68 +128,67 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks, On
 
   private GoogleApiClient buildGoogleApiClient() {
     return new GoogleApiClient.Builder(webView.getContext())
-      .addConnectionCallbacks(this)
-      .addOnConnectionFailedListener(this)
-      .addApi(Plus.API, Plus.PlusOptions.builder().build())
-      .addScope(Plus.SCOPE_PLUS_LOGIN)
-      .addScope(Plus.SCOPE_PLUS_PROFILE)
-      .build();
+        .addConnectionCallbacks(this).addOnConnectionFailedListener(this)
+        .addApi(Plus.API, Plus.PlusOptions.builder().build())
+        .addScope(Plus.SCOPE_PLUS_LOGIN).addScope(Plus.SCOPE_PLUS_PROFILE)
+        .build();
   }
 
-  @SuppressWarnings({ "unchecked", "rawtypes" })
   private void resolveToken(final String email, final JSONObject result) {
-    final Context context = this.cordova.getActivity().getApplicationContext();
+    final Context context = mActivity.getApplicationContext();
 
     cordova.getThreadPool().execute(new Runnable() {
-        public void run() {
-          String scope = null;
-          String token = null;
+      public void run() {
+        String scope = null;
+        String token = null;
 
-          try {
-            if (GooglePlus.this.webKey != null){
-              // Retrieve server side tokens
-              scope = "audience:server:client_id:" + GooglePlus.this.webKey;
-              token = GoogleAuthUtil.getToken(context, email, scope);
-              result.put("idToken", token);
-            } else if (GooglePlus.this.apiKey != null) {
-              // Retrieve the oauth token with offline mode
-              scope = "oauth2:server:client_id:" + GooglePlus.this.apiKey;
-              scope += ":api_scope:" + Scopes.PLUS_LOGIN;
-              token = GoogleAuthUtil.getToken(context, email, scope);
-              result.put("oauthToken", token);
-            } else {
-              // Retrieve the oauth token with offline mode
-              scope = "oauth2:" + Scopes.PLUS_LOGIN;
-              token = GoogleAuthUtil.getToken(context, email, scope);
-              result.put("oauthToken", token);
-            }
+        try {
+          if (GooglePlus.this.webKey != null) {
+            // Retrieve server side tokens
+            scope = "audience:server:client_id:" + GooglePlus.this.webKey;
+            token = GoogleAuthUtil.getToken(context, email, scope);
+            result.put("idToken", token);
           }
-          catch (UserRecoverableAuthException userAuthEx) {
-            // Start the user recoverable action using the intent returned by
-            // getIntent()
-            cordova.getActivity().startActivityForResult(userAuthEx.getIntent(),
-                                                         Activity.RESULT_OK);
-            return;
+          else if (GooglePlus.this.apiKey != null) {
+            // Retrieve the oauth token with offline mode
+            scope = "oauth2:server:client_id:" + GooglePlus.this.apiKey;
+            scope += ":api_scope:" + Scopes.PLUS_LOGIN;
+            token = GoogleAuthUtil.getToken(context, email, scope);
+            result.put("oauthToken", token);
           }
-          catch (IOException e) {
-            savedCallbackContext.error("Failed to retrieve token: " + e.getMessage());
-            return;
-          } catch (GoogleAuthException e) {
-            savedCallbackContext.error("Failed to retrieve token: " + e.getMessage());
-            return;
-          } catch (JSONException e) {
-            savedCallbackContext.error("Failed to retrieve token: " + e.getMessage());
-            return;
+          else {
+            // Retrieve the oauth token with offline mode
+            scope = "oauth2:" + Scopes.PLUS_LOGIN;
+            token = GoogleAuthUtil.getToken(context, email, scope);
+            result.put("oauthToken", token);
           }
-
-          savedCallbackContext.success(result);
+        } catch (UserRecoverableAuthException userAuthEx) {
+          // Start the user recoverable action using the intent returned by
+          // getIntent()
+          mActivity.startActivityForResult(userAuthEx.getIntent(), REQUEST_USER_RECOVERABLE);
+          return;
+        } catch (IOException e) {
+          savedCallbackContext.error("Failed to retrieve token: "
+              + e.getMessage());
+          return;
+        } catch (GoogleAuthException e) {
+          savedCallbackContext.error("Failed to retrieve token: "
+              + e.getMessage());
+          return;
+        } catch (JSONException e) {
+          savedCallbackContext.error("Failed to retrieve token: "
+              + e.getMessage());
+          return;
         }
-      });
+
+        savedCallbackContext.success(result);
+      }
+    });
   }
 
   /**
    * onConnected is called when our Activity successfully connects to Google
-   * Play services.  onConnected indicates that an account was selected on the
+   * Play services. onConnected indicates that an account was selected on the
    * device, that the selected account has granted any requested permissions to
    * our app and that we were able to establish a service connection to Google
    * Play services.
@@ -208,60 +228,118 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks, On
       }
       resolveToken(email, result);
     } catch (JSONException e) {
-      savedCallbackContext.error("result parsing trouble, error: " + e.getMessage());
+      savedCallbackContext.error("result parsing trouble, error: "
+          + e.getMessage());
     }
   }
 
   // same as iOS values
   private static String getGender(int gender) {
-    switch (gender) {
-    case 0:
-      return "male";
-    case 1:
-      return "female";
-    default:
-      return "other";
+    switch (gender)
+    {
+      case 0 :
+        return "male";
+      case 1 :
+        return "female";
+      default :
+        return "other";
     }
   }
 
   @Override
   public void onConnectionSuspended(int constantInClass_ConnectionCallbacks) {
-    this.savedCallbackContext.error("connection trouble, code: " + constantInClass_ConnectionCallbacks);
+    this.savedCallbackContext.error("connection trouble, code: "
+        + constantInClass_ConnectionCallbacks);
   }
 
   /**
-   * onConnectionFailed is called when our Activity could not connect to Google Play services.
-   * onConnectionFailed indicates that the user needs to select an account, grant permissions or resolve an error in order to sign in.
+   * onConnectionFailed is called when our Activity could not connect to Google
+   * Play services. onConnectionFailed indicates that the user needs to select
+   * an account, grant permissions or resolve an error in order to sign in.
    */
   @Override
   public void onConnectionFailed(ConnectionResult result) {
-    if (result.getErrorCode() == ConnectionResult.SERVICE_MISSING) { // e.g. emulator without play services installed
+    if (result.getErrorCode() == ConnectionResult.SERVICE_MISSING) { // e.g.
+                                                                     // emulator
+                                                                     // without
+                                                                     // play
+                                                                     // services
+                                                                     // installed
       this.savedCallbackContext.error("service not available");
-    } else if (loggingOut) {
+    }
+    else if (loggingOut) {
       loggingOut = false;
       this.savedCallbackContext.success("logged out");
-    } else if (result.getErrorCode() == ConnectionResult.SIGN_IN_REQUIRED && !trySilentLogin) {
+    }
+    else if (result.getErrorCode() == ConnectionResult.SIGN_IN_REQUIRED
+        && !trySilentLogin) {
       final PendingIntent mSignInIntent = result.getResolution();
       try {
         // startIntentSenderForResult is started from the CordovaActivity,
-        // set callback to this plugin to make sure this.onActivityResult gets called afterwards
-        ((CordovaActivity) this.cordova.getActivity()).setActivityResultCallback(this);
-        this.cordova.getActivity().startIntentSenderForResult(mSignInIntent.getIntentSender(), 0, null, 0, 0, 0);
+        // set callback to this plugin to make sure this.onActivityResult gets
+        // called afterwards
+        ((CordovaActivity) mActivity).setActivityResultCallback(this);
+        mActivity.startIntentSenderForResult(mSignInIntent.getIntentSender(), REQUEST_SIGNIN, 
+            null, 0, 0, 0);
       } catch (IntentSender.SendIntentException ignore) {
         mGoogleApiClient.connect();
       }
-    } else {
+    }
+    else {
       this.savedCallbackContext.error("no valid token");
     }
   }
 
   @Override
-  public void onActivityResult(int requestCode, final int resultCode, final Intent intent) {
+  public void onActivityResult(int requestCode, final int resultCode,
+      final Intent intent) {
+
     super.onActivityResult(requestCode, resultCode, intent);
-    if (resultCode == Activity.RESULT_OK) {
-      mGoogleApiClient.connect();
-    } else {
-      this.savedCallbackContext.error("user cancelled");
+
+    switch (requestCode)
+    {
+      case REQUEST_SHARE :
+      {
+        if (resultCode == Activity.RESULT_OK) {
+          this.savedCallbackContext.success();
+        }
+        else {
+          this.savedCallbackContext.error(resultCode);
+        }
+        return;
+      }
+      case REQUEST_USER_RECOVERABLE :
+      case REQUEST_SIGNIN :
+      {
+        
+        if (resultCode == Activity.RESULT_OK) {
+          mGoogleApiClient.connect();
+        }
+        else {
+          this.savedCallbackContext.error("user cancelled");
+        }
+        
+        return;
+      }
     }
+    
+    System.out.println("Invalid requestCode " + requestCode);
+
+  }
+
+  private void share(CordovaArgs args) throws JSONException {
+    JSONObject config = args.optJSONObject(0);
+
+    Builder builder = new PlusShare.Builder(mActivity).setType("text/plain");
+
+    if (config.optString("text") != null) {
+      builder.setText(config.getString("text"));
+    }
+
+    if (config.optString("url") != null) {
+      builder.setContentUrl(Uri.parse(config.getString("url")));
+    }
+
+    mActivity.startActivityForResult(builder.getIntent(), REQUEST_SHARE);
   }
 }
