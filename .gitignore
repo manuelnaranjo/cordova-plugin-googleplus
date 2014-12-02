@@ -1,1 +1,3 @@
 *.iml
+src/ios/GoogleOpenSource.framework
+src/ios/GooglePlus.framework
