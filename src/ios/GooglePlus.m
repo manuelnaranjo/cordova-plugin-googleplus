@@ -78,9 +78,29 @@ static void swizzleMethod(Class class, SEL destinationSelector, SEL sourceSelect
   [self writeJavascript:[pluginResult toSuccessCallbackString:command.callbackId]];
 }
 
-- (void) share_unused:(CDVInvokedUrlCommand*)command {
-  // for a rainy day.. see for a (limited) example https://github.com/vleango/GooglePlus-PhoneGap-iOS/blob/master/src/ios/GPlus.m
+- (void) share:(CDVInvokedUrlCommand*)command {
+  id<GPPNativeShareBuilder> shareBuilder = [[GPPShare sharedInstance] nativeShareDialog];
+
+  [[GPPShare sharedInstance] setDelegate:self];
+
+  NSDictionary* options = [command.arguments objectAtIndex:0];
+  // This line will fill out the title, description, and thumbnail from
+  // the URL that you are sharing and includes a link to that URL.
+  [shareBuilder setURLToShare:[NSURL URLWithString:[options objectForKey:@"url"]]];
+  [shareBuilder open];
 }
+
+- (void)finishedSharingWithError:(NSError *)error {
+
+  if (error) {
+    CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:error.localizedDescription];
+    [self writeJavascript:[pluginResult toErrorCallbackString:_callbackId]];
+  } else {
+    CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+    [self writeJavascript:[pluginResult toSuccessCallbackString:_callbackId]];
+  }
+}
+
 
 #pragma mark - GPPSignInDelegate
 - (void)finishedWithAuth:(GTMOAuth2Authentication *)auth
