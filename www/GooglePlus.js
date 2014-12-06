@@ -9,6 +9,10 @@ GooglePlus.prototype.trySilentLogin = function (options, successCallback, errorC
   cordova.exec(successCallback, errorCallback, "GooglePlus", "trySilentLogin", [options]);
 };
 
+GooglePlus.prototype.share = function (options, successCallback, errorCallback) {
+  cordova.exec(successCallback, errorCallback, "GooglePlus", "share", [options]);
+};
+
 GooglePlus.prototype.logout = function (successCallback, errorCallback) {
   cordova.exec(successCallback, errorCallback, "GooglePlus", "logout", []);
 };
