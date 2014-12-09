@@ -145,7 +145,15 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks,
         try {
           if (GooglePlus.this.webKey != null) {
             // Retrieve server side tokens
-            scope = "audience:server:client_id:" + GooglePlus.this.webKey;
+            scope = "oauth2:server:client_id:" + GooglePlus.this.webKey;
+            scope+=":api_scope:openid email profile";
+            try {
+              GoogleAuthUtil.clearToken(context, scope);
+            } catch (Exception e) {
+              System.err.println("Failed cleanig up credentials " +
+                                 e.getMessage());
+            }
+
             token = GoogleAuthUtil.getToken(context, email, scope);
             result.put("idToken", token);
           }
