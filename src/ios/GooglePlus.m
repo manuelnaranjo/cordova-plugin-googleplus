@@ -54,13 +54,26 @@ static void swizzleMethod(Class class, SEL destinationSelector, SEL sourceSelect
     [self writeJavascript:[pluginResult toErrorCallbackString:_callbackId]];
     return nil;
   }
-  
+
+  NSString* webKey = [options objectForKey:@"webApiKey"];
+
   GPPSignIn *signIn = [GPPSignIn sharedInstance];
   signIn.shouldFetchGooglePlusUser = YES;
   signIn.shouldFetchGoogleUserEmail = YES;
   signIn.shouldFetchGoogleUserID = YES;
   signIn.clientID = apiKey;
-  signIn.scopes = @[kGTLAuthScopePlusLogin];
+
+  if (webKey != nil) {
+    signIn.homeServerClientID = webKey;
+  }
+
+  signIn.scopes = [NSArray arrayWithObjects:
+                             kGTLAuthScopePlusLogin,
+                           @"openid",
+                           @"email",
+                           @"profile"
+                           nil];
+
   signIn.attemptSSO = YES; // tries to use other installed Google apps
   signIn.delegate = self;
   return signIn;
