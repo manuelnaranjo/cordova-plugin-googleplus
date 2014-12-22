@@ -38,6 +38,7 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks,
   public static final String ACTION_LOGOUT            = "logout";
   public static final String ACTION_DISCONNECT        = "disconnect";
   public static final String ACTION_SHARE             = "share";
+  public static final String ACTION_INVALIDATE        = "invalidateToken";
 
   public static final String ARGUMENT_ANDROID_KEY     = "androidApiKey";
   public static final String ARGUMENT_WEB_KEY         = "webApiKey";
@@ -104,6 +105,9 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks,
     }
     else if (ACTION_SHARE.equals(action)) {
       share(args);
+    }
+    else if (ACTION_INVALIDATE.equals(action)) {
+      invalidateToken(args);
     }
     return true;
   }
@@ -349,5 +353,23 @@ public class GooglePlus extends CordovaPlugin implements ConnectionCallbacks,
     }
 
     mActivity.startActivityForResult(builder.getIntent(), REQUEST_SHARE);
+  }
+
+  private void invalidateToken(CordovaArgs args) throws JSONException {
+    final String token = args.optString(0);
+    final Context context = mActivity.getApplicationContext();
+
+    cordova.getThreadPool().execute(new Runnable() {
+      public void run() {
+        try {
+          GoogleAuthUtil.clearToken(context, token);
+          savedCallbackContext.success("credentials dropped");
+        } catch (Exception e) {
+          System.err.println("Failed cleanig up credentials " +
+            e.getMessage());
+          savedCallbackContext.error("error cleaning credentials");
+        }
+      }
+    });
   }
 }

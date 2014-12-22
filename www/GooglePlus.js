@@ -21,6 +21,10 @@ GooglePlus.prototype.disconnect = function (successCallback, errorCallback) {
   cordova.exec(successCallback, errorCallback, "GooglePlus", "disconnect", []);
 };
 
+GooglePlus.prototype.invalidateToken = function (token, successCallback, errorCallback) {
+  cordova.exec(successCallback, errorCallback, "GooglePlus", "invalidateToken", [token]);
+};
+
 GooglePlus.install = function () {
   if (!window.plugins) {
     window.plugins = {};
